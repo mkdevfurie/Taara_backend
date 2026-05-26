@@ -7,6 +7,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import * as Sentry from '@sentry/nestjs';
 import type { Request, Response } from 'express';
 
 interface ErrorResponse {
@@ -41,6 +42,12 @@ export class HttpExceptionFilter implements ExceptionFilter {
         `${request.method} ${request.url} -> ${status}`,
         exception instanceof Error ? exception.stack : String(exception),
       );
+      // On ne notifie Sentry que pour les vraies erreurs serveur (5xx),
+      // pas pour les 4xx qui sont du bruit côté monitoring.
+      Sentry.captureException(exception, {
+        tags: { method: request.method, statusCode: status },
+        extra: { path: request.url },
+      });
     }
 
     response.status(status).json(body);

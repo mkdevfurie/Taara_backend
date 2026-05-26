@@ -1,9 +1,13 @@
+// Sentry DOIT être importé en tout premier (auto-instrumentation Node).
+import './instrument';
+
 import { NestFactory } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
 import { ValidationPipe, VersioningType, Logger as NestLogger } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { Logger } from 'nestjs-pino';
 import helmet from 'helmet';
+import compression from 'compression';
 
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
@@ -12,6 +16,10 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bufferLogs: true, rawBody: true });
 
   app.useLogger(app.get(Logger));
+
+  // Graceful shutdown : Cloud Run envoie SIGTERM, NestJS doit terminer
+  // les requêtes en cours, fermer Prisma, etc.
+  app.enableShutdownHooks();
 
   const config = app.get(ConfigService);
   const port = config.get<number>('PORT', 3000);
@@ -28,6 +36,7 @@ async function bootstrap() {
     credentials: true,
   });
   app.use(helmet());
+  app.use(compression());
 
   app.useGlobalPipes(
     new ValidationPipe({
