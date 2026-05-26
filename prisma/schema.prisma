@@ -1,0 +1,403 @@
+// ============================================================
+// TAARA — Prisma Schema
+// PostgreSQL (Neon) + Prisma Client
+// ============================================================
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ============================================================
+// ENUMS
+// ============================================================
+
+enum UserType {
+  CLIENT
+  PRO
+  ADMIN
+}
+
+enum DiagnosisStatus {
+  PENDING
+  COMPLETED
+  FAILED
+}
+
+enum JobStatus {
+  PENDING
+  ACCEPTED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REFUNDED
+}
+
+enum PaymentMethod {
+  STRIPE
+  ORANGE_MONEY
+  MTN_MONEY
+  CASH
+}
+
+enum NotificationType {
+  NEW_JOB
+  JOB_ACCEPTED
+  JOB_DECLINED
+  JOB_STARTED
+  JOB_COMPLETED
+  MESSAGE
+  PAYMENT_RECEIVED
+  PAYMENT_FAILED
+  RATING_RECEIVED
+  PRO_VERIFIED
+  WITHDRAWAL_PROCESSED
+  GENERIC
+}
+
+// ============================================================
+// USERS
+// ============================================================
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  phone        String   @unique
+  password     String
+  firstName    String
+  lastName     String
+  profileImage String? // Cloudinary URL
+  isVerified   Boolean  @default(false)
+  isBanned     Boolean  @default(false)
+  userType     UserType @default(CLIENT)
+
+  // Email verification & password reset (single-use tokens hashés)
+  emailVerificationToken   String?   @unique
+  emailVerificationExpires DateTime?
+  passwordResetToken       String?   @unique
+  passwordResetExpires     DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  professional  Professional?
+  diagnostics   Diagnostic[]
+  jobRequests   JobRequest[]   @relation("client_job_requests")
+  ratingsGiven  Rating[]       @relation("rater")
+  messages      Message[]
+  wallet        Wallet?
+  notifications Notification[]
+  refreshTokens RefreshToken[]
+
+  @@index([userType])
+  @@index([createdAt])
+}
+
+// Refresh tokens persistants (rotation + révocation)
+model RefreshToken {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  userAgent String?
+  ipAddress String?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+// ============================================================
+// PROFESSIONALS
+// ============================================================
+
+model Professional {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  specialties    String[] // ["Électricien", "Plombier"]
+  certifications String[] // URLs Cloudinary
+  experience     Int      @default(0) // années
+  bio            String?
+  serviceZone    String[] // ["Lomé", "Sokodé"]
+  isVerified     Boolean  @default(false)
+  rating         Float    @default(0)
+  totalJobs      Int      @default(0)
+
+  hourlyRate   Float // FCFA
+  availability Json? // { "mon": "09:00-17:00", ... }
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  jobs           Job[]
+  ratings        Rating[]
+  subContractor  SubContractor[]
+
+  @@index([isVerified])
+  @@index([rating])
+}
+
+// ============================================================
+// DIAGNOSTIC
+// ============================================================
+
+model Diagnostic {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  imageUrl           String?
+  problemDescription String
+  problemType        String
+
+  aiDiagnosis Json // { problem, steps[], parts[] }
+  confidence  Float // 0-1
+
+  status DiagnosisStatus @default(COMPLETED)
+
+  createdAt DateTime @default(now())
+
+  // Relations
+  jobs        Job[]
+  jobRequests JobRequest[]
+
+  @@index([userId])
+  @@index([createdAt])
+}
+
+// ============================================================
+// JOB REQUEST (demande créée par le client)
+// ============================================================
+
+model JobRequest {
+  id           String     @id @default(cuid())
+  diagnosticId String
+  diagnostic   Diagnostic @relation(fields: [diagnosticId], references: [id], onDelete: Cascade)
+
+  clientId String
+  client   User   @relation("client_job_requests", fields: [clientId], references: [id], onDelete: Cascade)
+
+  status         JobStatus @default(PENDING)
+  estimatedPrice Float // FCFA (estimation client)
+  finalPrice     Float?
+
+  description String?
+
+  createdAt   DateTime  @default(now())
+  completedAt DateTime?
+
+  // Relations
+  jobs Job[]
+
+  @@index([clientId])
+  @@index([status])
+}
+
+// ============================================================
+// JOB (assignation à un pro)
+// ============================================================
+
+model Job {
+  id           String     @id @default(cuid())
+  jobRequestId String
+  jobRequest   JobRequest @relation(fields: [jobRequestId], references: [id], onDelete: Cascade)
+
+  professionalId String
+  professional   Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+
+  diagnosticId String
+  diagnostic   Diagnostic @relation(fields: [diagnosticId], references: [id], onDelete: Cascade)
+
+  status      JobStatus @default(PENDING)
+  quotedPrice Float
+  actualPrice Float?
+
+  description     String?
+  completionProof String? // Cloudinary URL
+
+  createdAt   DateTime  @default(now())
+  acceptedAt  DateTime?
+  startedAt   DateTime?
+  completedAt DateTime?
+
+  // Relations
+  messages       Message[]
+  rating         Rating?
+  payments       Payment[]
+  subContractors SubContractor[]
+
+  @@index([professionalId])
+  @@index([status])
+}
+
+// ============================================================
+// SUB-CONTRACTORS (pro principal -> sous-traitant)
+// ============================================================
+
+model SubContractor {
+  id        String @id @default(cuid())
+  mainJobId String
+  mainJob   Job    @relation(fields: [mainJobId], references: [id], onDelete: Cascade)
+
+  professionalId String
+  professional   Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+
+  taskDescription String
+  quotedPrice     Float
+  actualPrice     Float?
+  status          JobStatus @default(PENDING)
+
+  createdAt   DateTime  @default(now())
+  completedAt DateTime?
+
+  @@index([mainJobId])
+  @@index([professionalId])
+}
+
+// ============================================================
+// MESSAGES (chat lié à un job)
+// ============================================================
+
+model Message {
+  id    String @id @default(cuid())
+  jobId String
+  job   Job    @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  senderId String
+  sender   User   @relation(fields: [senderId], references: [id], onDelete: Cascade)
+
+  content  String
+  imageUrl String?
+
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([jobId])
+  @@index([senderId])
+}
+
+// ============================================================
+// RATINGS
+// ============================================================
+
+model Rating {
+  id    String @id @default(cuid())
+  jobId String @unique
+  job   Job    @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation("rater", fields: [userId], references: [id], onDelete: Cascade)
+
+  professionalId String
+  professional   Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+
+  score   Int // 1-5
+  comment String?
+
+  createdAt DateTime @default(now())
+
+  @@index([professionalId])
+  @@index([userId])
+}
+
+// ============================================================
+// PAYMENTS
+// ============================================================
+
+model Payment {
+  id    String @id @default(cuid())
+  jobId String
+  job   Job    @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  amount         Float // FCFA brut
+  commissionRate Float         @default(0.10) // 10% par défaut
+  commission     Float         @default(0)
+  netAmount      Float         @default(0) // versé au pro
+  currency       String        @default("XOF")
+  status         PaymentStatus @default(PENDING)
+  method         PaymentMethod
+  transactionId  String?
+  metadata       Json?
+
+  createdAt   DateTime  @default(now())
+  completedAt DateTime?
+
+  @@index([status])
+  @@index([jobId])
+}
+
+// ============================================================
+// WALLET
+// ============================================================
+
+model Wallet {
+  id          String @id @default(cuid())
+  userId      String @unique
+  user        User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  balance     Float    @default(0)
+  totalEarned Float    @default(0)
+  totalSpent  Float    @default(0)
+  currency    String   @default("XOF")
+
+  transactions WalletTransaction[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model WalletTransaction {
+  id       String @id @default(cuid())
+  walletId String
+  wallet   Wallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  amount      Float
+  type        String // "credit" | "debit" | "withdrawal" | "refund"
+  reference   String? // ex: paymentId, withdrawalId
+  description String?
+  status      PaymentStatus @default(COMPLETED)
+
+  createdAt DateTime @default(now())
+
+  @@index([walletId])
+  @@index([createdAt])
+}
+
+// ============================================================
+// NOTIFICATIONS
+// ============================================================
+
+model Notification {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  type    NotificationType
+  title   String
+  message String
+  link    String?
+  data    Json?
+  isRead  Boolean          @default(false)
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, isRead])
+  @@index([createdAt])
+}

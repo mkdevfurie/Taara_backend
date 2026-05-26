@@ -1,0 +1,15 @@
+node_modules/
+dist/
+coverage/
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+.idea/
+.vscode/
+.npm/
+.eslintcache
+prisma/migrations/dev*
+prisma/*.db
+prisma/*.db-journal
