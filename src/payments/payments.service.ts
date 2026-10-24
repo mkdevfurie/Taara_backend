@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   Logger,
@@ -55,6 +56,11 @@ export class PaymentsService {
     if (!amount || amount <= 0) {
       throw new BadRequestException('Montant du job invalide');
     }
+    const alreadyPaid = await this.prisma.payment.findFirst({
+      where: { jobId: job.id, status: PaymentStatus.COMPLETED },
+      select: { id: true },
+    });
+    if (alreadyPaid) throw new ConflictException('Ce job a déjà été payé');
 
     const commissionRate = Number(this.config.get<string>('COMMISSION_RATE') ?? '0.10');
     const commission = Math.round(amount * commissionRate);

@@ -62,6 +62,22 @@ Documentation Swagger : http://localhost:3000/api/docs
 |-------|----------------|
 | GET   | `/api/v1/health` |
 
+### Autres modules
+
+Diagnostics (`/diagnostics` — accepte un `aiDiagnosis` déjà calculé sur l'appareil), professionnels, jobs + chat (REST + Socket.IO), notes, notifications, portefeuille, paiements (Stripe / Mobile Money / espèces), sous-traitance et admin. Liste complète dans Swagger (`/api/docs`).
+
+Retraits : le pro demande (`POST /wallet/withdraw`), l'admin valide (`POST /admin/withdrawals/:id/approve`) ou refuse avec recrédit (`POST /admin/withdrawals/:id/reject`, `{ reason? }`).
+
+## Emails
+
+`MAIL_PROVIDER` = `console` (dev : contenu loggé), `resend` (`RESEND_API_KEY`) ou `sendgrid` (`SENDGRID_API_KEY`). Les liens pointent vers `APP_URL`. Un échec d'envoi est loggé sans bloquer l'inscription.
+
+## Tests
+
+```bash
+npm test
+```
+
 ## Sécurité
 
 - Mots de passe hashés bcrypt (cost = 12)

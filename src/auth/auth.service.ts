@@ -6,12 +6,13 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { JwtService } from '@nestjs/jwt';
+import { JwtService, JwtSignOptions } from '@nestjs/jwt';
 import { Prisma, UserType, type User } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'node:crypto';
 
 import { PrismaService } from '../prisma/prisma.service';
+import { MailService } from '../mail/mail.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import {
@@ -50,6 +51,7 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
+    private readonly mail: MailService,
   ) {}
 
   // -------------------------------------------------------- REGISTER
@@ -89,7 +91,7 @@ export class AuthService {
       },
     });
 
-    this.sendEmailDev('verify-email', user.email, emailVerificationToken);
+    this.sendAuthEmail('verify-email', user.email, emailVerificationToken);
 
     const tokens = await this.issueTokens(user, meta);
     return {
@@ -199,7 +201,7 @@ export class AuthService {
         passwordResetExpires: new Date(Date.now() + RESET_TOKEN_TTL_MS),
       },
     });
-    this.sendEmailDev('reset-password', user.email, token);
+    this.sendAuthEmail('reset-password', user.email, token);
     return { success: true };
   }
 
@@ -254,7 +256,7 @@ export class AuthService {
       { sub: user.id, email: user.email, userType: user.userType },
       {
         secret: this.config.getOrThrow<string>('JWT_ACCESS_SECRET'),
-        expiresIn: accessExpiresIn,
+        expiresIn: accessExpiresIn as JwtSignOptions['expiresIn'],
       },
     );
 
@@ -262,7 +264,7 @@ export class AuthService {
       { sub: user.id, jti },
       {
         secret: this.config.getOrThrow<string>('JWT_REFRESH_SECRET'),
-        expiresIn: refreshExpiresIn,
+        expiresIn: refreshExpiresIn as JwtSignOptions['expiresIn'],
       },
     );
 
@@ -302,15 +304,30 @@ export class AuthService {
   }
 
   /**
-   * Stub d'envoi d'email. En dev, on log le token pour pouvoir tester.
-   * En Phase 1.5, brancher SendGrid/Resend ici.
+   * Envoie l'email de vérification ou de réinitialisation.
+   * Le lien pointe vers APP_URL (ex : https://taara.app/reset-password?token=…).
    */
-  private sendEmailDev(kind: 'verify-email' | 'reset-password', email: string, token: string) {
-    const provider = this.config.get<string>('MAIL_PROVIDER') ?? 'console';
-    if (provider === 'console') {
-      this.logger.warn(`[mail:${kind}] to=${email} token=${token}`);
-    }
-    // TODO Phase 1.5 : implémenter SendGrid / Resend ici
+  private sendAuthEmail(kind: 'verify-email' | 'reset-password', email: string, token: string) {
+    const appUrl = (this.config.get<string>('APP_URL') ?? 'https://taara.app').replace(/\/$/, '');
+    const link = `${appUrl}/${kind}?token=${encodeURIComponent(token)}`;
+    const content =
+      kind === 'verify-email'
+        ? {
+            subject: 'TAARA — Confirmez votre adresse email',
+            intro: 'Bienvenue sur TAARA ! Confirmez votre adresse email (lien valable 24 h) :',
+          }
+        : {
+            subject: 'TAARA — Réinitialisation du mot de passe',
+            intro:
+              "Vous avez demandé à réinitialiser votre mot de passe (lien valable 1 h). Si ce n'est pas vous, ignorez cet email.",
+          };
+
+    void this.mail.send({
+      to: email,
+      subject: content.subject,
+      text: `${content.intro}\n\n${link}\n\nCode : ${token}`,
+      html: `<p>${content.intro}</p><p><a href="${link}">${link}</a></p><p>Code : <code>${token}</code></p>`,
+    });
   }
 
   /**

@@ -1,5 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import { IsBoolean, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 
 export class SearchProfessionalsDto {
@@ -20,7 +20,11 @@ export class SearchProfessionalsDto {
 
   @ApiPropertyOptional({ default: true })
   @IsOptional()
-  @Type(() => Boolean)
+  // Query string : "false" doit donner false (Boolean("false") === true)
+  @Transform(({ obj, key }) => {
+    const raw = (obj as Record<string, unknown>)[key];
+    return typeof raw === 'string' ? raw !== 'false' && raw !== '0' : raw;
+  })
   @IsBoolean()
   verifiedOnly?: boolean = true;
 

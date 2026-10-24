@@ -100,4 +100,10 @@ export class AdminController {
   approveWithdrawal(@Param('id') id: string) {
     return this.admin.approveWithdrawal(id);
   }
+
+  @Post('withdrawals/:id/reject')
+  @ApiOperation({ summary: 'Refuser un retrait (le montant est recrédité au pro)' })
+  rejectWithdrawal(@Param('id') id: string, @Body('reason') reason?: string) {
+    return this.admin.rejectWithdrawal(id, reason);
+  }
 }

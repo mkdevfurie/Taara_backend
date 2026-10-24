@@ -8,6 +8,7 @@ import { SentryModule } from '@sentry/nestjs/setup';
 import { validateEnv } from './common/config/env.validation';
 import { PrismaModule } from './prisma/prisma.module';
 import { CloudinaryModule } from './cloudinary/cloudinary.module';
+import { MailModule } from './mail/mail.module';
 import { GemmaModule } from './gemma/gemma.module';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
@@ -67,6 +68,7 @@ import { HealthController } from './health.controller';
     }),
     PrismaModule,
     CloudinaryModule,
+    MailModule,
     GemmaModule,
     NotificationsModule,
     WalletModule,

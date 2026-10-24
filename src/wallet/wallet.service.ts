@@ -1,13 +1,17 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { PaymentStatus, Prisma } from '@prisma/client';
+import { NotificationType, PaymentStatus, Prisma } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { WithdrawDto } from './dto/withdraw.dto';
 import type { JwtUser } from '../common/decorators/current-user.decorator';
 
 @Injectable()
 export class WalletService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notifications: NotificationsService,
+  ) {}
 
   async getMine(requester: JwtUser) {
     let wallet = await this.prisma.wallet.findUnique({ where: { userId: requester.id } });
@@ -48,10 +52,13 @@ export class WalletService {
     // Création d'une transaction en attente. Le traitement réel (paiement Mobile Money / bank)
     // se fait via un worker / cron — mock ici (PENDING -> à traiter manuellement par l'admin Phase 5).
     return this.prisma.$transaction(async (tx) => {
-      const updated = await tx.wallet.update({
-        where: { id: wallet.id },
+      // Décrément conditionnel : évite un solde négatif si deux retraits arrivent en même temps
+      const { count } = await tx.wallet.updateMany({
+        where: { id: wallet.id, balance: { gte: dto.amount } },
         data: { balance: { decrement: dto.amount } },
       });
+      if (count === 0) throw new BadRequestException('Solde insuffisant');
+      const updated = await tx.wallet.findUniqueOrThrow({ where: { id: wallet.id } });
       const txn = await tx.walletTransaction.create({
         data: {
           walletId: wallet.id,
@@ -103,14 +110,66 @@ export class WalletService {
    * Endpoint admin pour valider un retrait.
    */
   async approveWithdrawal(transactionId: string) {
-    const tx = await this.prisma.walletTransaction.findUnique({ where: { id: transactionId } });
+    const tx = await this.getPendingWithdrawal(transactionId);
+    const updated = await this.prisma.walletTransaction.update({
+      where: { id: transactionId },
+      data: { status: PaymentStatus.COMPLETED },
+    });
+    await this.notifications.create({
+      userId: tx.wallet.userId,
+      type: NotificationType.WITHDRAWAL_PROCESSED,
+      title: 'Retrait effectué',
+      message: `Votre retrait de ${Math.abs(tx.amount)} ${tx.wallet.currency} a été envoyé.`,
+      data: { transactionId },
+    });
+    return updated;
+  }
+
+  /** Refuse un retrait en attente et recrédite le portefeuille. */
+  async rejectWithdrawal(transactionId: string, reason?: string) {
+    const tx = await this.getPendingWithdrawal(transactionId);
+    const amount = Math.abs(tx.amount);
+    const updated = await this.prisma.$transaction(async (db) => {
+      const { count } = await db.walletTransaction.updateMany({
+        where: { id: transactionId, status: PaymentStatus.PENDING },
+        data: { status: PaymentStatus.FAILED },
+      });
+      if (count === 0) throw new BadRequestException('Transaction non éligible');
+      await db.wallet.update({
+        where: { id: tx.walletId },
+        data: { balance: { increment: amount } },
+      });
+      await db.walletTransaction.create({
+        data: {
+          walletId: tx.walletId,
+          amount,
+          type: 'refund',
+          reference: transactionId,
+          description: `Retrait refusé${reason ? ` : ${reason}` : ''}`,
+          status: PaymentStatus.COMPLETED,
+        },
+      });
+      return db.walletTransaction.findUniqueOrThrow({ where: { id: transactionId } });
+    });
+    await this.notifications.create({
+      userId: tx.wallet.userId,
+      type: NotificationType.WITHDRAWAL_PROCESSED,
+      title: 'Retrait refusé',
+      message: `Votre retrait de ${amount} ${tx.wallet.currency} a été refusé et recrédité.${reason ? ` Motif : ${reason}` : ''}`,
+      data: { transactionId },
+    });
+    return updated;
+  }
+
+  private async getPendingWithdrawal(transactionId: string) {
+    const tx = await this.prisma.walletTransaction.findUnique({
+      where: { id: transactionId },
+      include: { wallet: true },
+    });
     if (!tx) throw new NotFoundException('Transaction introuvable');
     if (tx.type !== 'withdrawal' || tx.status !== PaymentStatus.PENDING) {
       throw new BadRequestException('Transaction non éligible');
     }
-    return this.prisma.walletTransaction.update({
-      where: { id: transactionId },
-      data: { status: PaymentStatus.COMPLETED },
-    });
+    return tx;
   }
 }

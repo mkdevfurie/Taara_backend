@@ -1,5 +1,5 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { DiagnosisStatus, UserType } from '@prisma/client';
+import { DiagnosisStatus, Prisma, UserType } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service';
 import { CloudinaryService } from '../cloudinary/cloudinary.service';
@@ -28,6 +28,21 @@ export class DiagnosticsService {
         tags: ['diagnostic', `user:${requester.id}`],
       });
       imageUrl = uploaded.url;
+    }
+
+    // Diagnostic déjà produit sur l'appareil : on l'enregistre tel quel.
+    if (dto.aiDiagnosis) {
+      return this.prisma.diagnostic.create({
+        data: {
+          userId: requester.id,
+          imageUrl,
+          problemDescription: dto.problemDescription,
+          problemType: dto.problemType ?? 'Inconnu',
+          aiDiagnosis: dto.aiDiagnosis as Prisma.InputJsonObject,
+          confidence: dto.confidence ?? 0,
+          status: DiagnosisStatus.COMPLETED,
+        },
+      });
     }
 
     const draft = await this.prisma.diagnostic.create({
