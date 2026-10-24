@@ -66,6 +66,10 @@ class EnvVars {
 
   @IsString()
   @IsOptional()
+  APP_URL?: string;
+
+  @IsString()
+  @IsOptional()
   MAIL_FROM?: string;
 
   @IsString()

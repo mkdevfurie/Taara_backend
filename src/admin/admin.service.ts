@@ -178,6 +178,10 @@ export class AdminService {
     return this.wallet.approveWithdrawal(transactionId);
   }
 
+  async rejectWithdrawal(transactionId: string, reason?: string) {
+    return this.wallet.rejectWithdrawal(transactionId, reason);
+  }
+
   async listPendingWithdrawals() {
     return this.prisma.walletTransaction.findMany({
       where: { type: 'withdrawal', status: PaymentStatus.PENDING },

@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { JobStatus, NotificationType, UserType, type Job } from '@prisma/client';
+import { JobStatus, NotificationType, PaymentStatus, UserType, type Job } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -101,6 +101,8 @@ export class JobsService {
           include: { user: { select: { firstName: true, lastName: true, profileImage: true } } },
         },
         diagnostic: { select: { id: true, problemType: true, imageUrl: true } },
+        rating: { select: { score: true, comment: true } },
+        payments: { where: { status: PaymentStatus.COMPLETED }, select: { id: true, method: true } },
       },
     });
   }
@@ -244,7 +246,7 @@ export class JobsService {
     if (!isClient && requester.userType !== UserType.ADMIN) {
       throw new ForbiddenException('Seul le client ou un admin peut annuler');
     }
-    if ([JobStatus.COMPLETED, JobStatus.CANCELLED].includes(job.status)) {
+    if (job.status === JobStatus.COMPLETED || job.status === JobStatus.CANCELLED) {
       throw new BadRequestException(`Job déjà ${job.status}`);
     }
     return this.prisma.$transaction(async (tx) => {
