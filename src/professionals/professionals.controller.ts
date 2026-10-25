@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpStatus,
   Param,
@@ -50,7 +51,7 @@ export class ProfessionalsController {
   }
 
   @Put(':id')
-  @ApiOperation({ summary: 'Mettre à jour sa fiche pro (ou n\'importe laquelle en admin)' })
+  @ApiOperation({ summary: "Mettre à jour sa fiche pro (ou n'importe laquelle en admin)" })
   update(
     @Param('id') id: string,
     @Body() dto: UpdateProfessionalDto,
@@ -77,6 +78,16 @@ export class ProfessionalsController {
     return this.pros.addCertification(id, file, user);
   }
 
+  @Delete(':id/certifications')
+  @ApiOperation({ summary: 'Retirer un justificatif ({ url })' })
+  removeCertification(
+    @Param('id') id: string,
+    @Body('url') url: string,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return this.pros.removeCertification(id, url, user);
+  }
+
   @Post(':id/verify')
   @Roles(UserType.ADMIN)
   @ApiOperation({ summary: '[ADMIN] Vérifier / dévérifier un pro' })
@@ -86,11 +97,7 @@ export class ProfessionalsController {
 
   @Get(':id/jobs')
   @ApiOperation({ summary: "Lister les jobs d'un pro (lui-même ou admin)" })
-  jobs(
-    @Param('id') id: string,
-    @CurrentUser() user: JwtUser,
-    @Query('status') status?: JobStatus,
-  ) {
+  jobs(@Param('id') id: string, @CurrentUser() user: JwtUser, @Query('status') status?: JobStatus) {
     return this.pros.getMyJobs(id, user, status);
   }
 
@@ -103,11 +110,7 @@ export class ProfessionalsController {
   @Public()
   @Get(':id/ratings')
   @ApiOperation({ summary: "Lister les notes d'un pro" })
-  ratings(
-    @Param('id') id: string,
-    @Query('page') page = 1,
-    @Query('perPage') perPage = 20,
-  ) {
+  ratings(@Param('id') id: string, @Query('page') page = 1, @Query('perPage') perPage = 20) {
     return this.pros.getRatings(id, Number(page), Number(perPage));
   }
 }

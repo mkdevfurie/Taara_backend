@@ -66,7 +66,16 @@ export class AdminService {
         take: perPage,
         include: {
           user: {
-            select: { id: true, email: true, firstName: true, lastName: true, isBanned: true },
+            select: {
+              id: true,
+              email: true,
+              phone: true,
+              firstName: true,
+              lastName: true,
+              profileImage: true,
+              isBanned: true,
+              createdAt: true,
+            },
           },
         },
       }),

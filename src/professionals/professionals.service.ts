@@ -1,9 +1,10 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { JobStatus, Prisma, UserType } from '@prisma/client';
+import { JobStatus, NotificationType, Prisma, UserType } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service';
 import { CloudinaryService } from '../cloudinary/cloudinary.service';
 import { SubscriptionsService } from '../subscriptions/subscriptions.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { SearchProfessionalsDto } from './dto/search-professionals.dto';
 import { UpdateProfessionalDto } from './dto/update-professional.dto';
 import type { JwtUser } from '../common/decorators/current-user.decorator';
@@ -14,6 +15,7 @@ export class ProfessionalsService {
     private readonly prisma: PrismaService,
     private readonly cloudinary: CloudinaryService,
     private readonly subscriptions: SubscriptionsService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   async search(q: SearchProfessionalsDto) {
@@ -108,13 +110,46 @@ export class ProfessionalsService {
     });
   }
 
+  /** Retire un justificatif (le fichier reste sur Cloudinary, seule la référence est supprimée). */
+  async removeCertification(id: string, url: string, requester: JwtUser) {
+    const pro = await this.assertOwnerOrAdmin(id, requester);
+    if (!pro.certifications.includes(url)) throw new NotFoundException('Justificatif introuvable');
+    return this.prisma.professional.update({
+      where: { id: pro.id },
+      data: { certifications: pro.certifications.filter((c) => c !== url) },
+    });
+  }
+
   async verify(id: string, verified: boolean) {
     const pro = await this.prisma.professional.findUnique({ where: { id } });
     if (!pro) throw new NotFoundException('Professionnel introuvable');
-    return this.prisma.professional.update({
+    const updated = await this.prisma.professional.update({
       where: { id },
       data: { isVerified: verified },
     });
+    // Le pro est prévenu en direct (et la notification reste dans son historique)
+    if (verified !== pro.isVerified) {
+      await this.notifications.create(
+        verified
+          ? {
+              userId: pro.userId,
+              type: NotificationType.PRO_VERIFIED,
+              title: 'Profil vérifié ✓',
+              message:
+                'Votre profil réparateur est vérifié : vous apparaissez maintenant aux clients.',
+              data: { professionalId: id },
+            }
+          : {
+              userId: pro.userId,
+              type: NotificationType.GENERIC,
+              title: 'Vérification retirée',
+              message:
+                "Votre profil n'apparaît plus aux clients. Complétez votre fiche ou contactez l'équipe Taara.",
+              data: { professionalId: id },
+            },
+      );
+    }
+    return updated;
   }
 
   async getMyJobs(id: string, requester: JwtUser, status?: JobStatus) {
