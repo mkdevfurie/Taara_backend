@@ -63,6 +63,7 @@ enum NotificationType {
   RATING_RECEIVED
   PRO_VERIFIED
   WITHDRAWAL_PROCESSED
+  SUBSCRIPTION_UPDATED
   GENERIC
 }
 
@@ -142,6 +143,10 @@ model Professional {
   hourlyRate   Float // FCFA
   availability Json? // { "mon": "09:00-17:00", ... }
 
+  // Abonnement : le pro est visible et peut recevoir des demandes tant que
+  // subscriptionEndsAt est dans le futur (période d'essai incluse).
+  subscriptionEndsAt DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -149,9 +154,45 @@ model Professional {
   jobs           Job[]
   ratings        Rating[]
   subContractor  SubContractor[]
+  subscriptions  Subscription[]
 
   @@index([isVerified])
   @@index([rating])
+  @@index([subscriptionEndsAt])
+}
+
+// ============================================================
+// SUBSCRIPTIONS (abonnements des pros — historique)
+// ============================================================
+
+enum SubscriptionChannel {
+  TRIAL // période d'essai offerte
+  T_MONEY
+  FLOOZ
+  CASH
+  OTHER
+}
+
+model Subscription {
+  id             String       @id @default(cuid())
+  professionalId String
+  professional   Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+
+  months    Int
+  amount    Float               @default(0) // FCFA réellement reçu
+  currency  String              @default("XOF")
+  channel   SubscriptionChannel
+  reference String? // n° de transaction Mobile Money
+  note      String?
+
+  startsAt DateTime
+  endsAt   DateTime
+
+  activatedById String? // admin qui a validé (null pour l'essai automatique)
+  createdAt     DateTime @default(now())
+
+  @@index([professionalId])
+  @@index([createdAt])
 }
 
 // ============================================================

@@ -7,6 +7,8 @@ import {
 import { JobStatus, NotificationType, PaymentStatus, UserType, type Job } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service';
+import { SubscriptionsService } from '../subscriptions/subscriptions.service';
+import { RealtimeService } from '../realtime/realtime.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CreateJobDto } from './dto/create-job.dto';
 import { AcceptJobDto, CompleteJobDto, DeclineJobDto } from './dto/quote-job.dto';
@@ -17,6 +19,8 @@ export class JobsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationsService,
+    private readonly subscriptions: SubscriptionsService,
+    private readonly realtime: RealtimeService,
   ) {}
 
   // ---------------------------------------------------------- CREATE
@@ -32,7 +36,9 @@ export class JobsService {
     if (diagnostic.userId !== requester.id) {
       throw new ForbiddenException('Ce diagnostic ne vous appartient pas');
     }
-    if (!pro || pro.user.isBanned) throw new NotFoundException('Professionnel indisponible');
+    if (!pro || pro.user.isBanned || !this.subscriptions.isActive(pro)) {
+      throw new NotFoundException('Professionnel indisponible');
+    }
 
     const job = await this.prisma.$transaction(async (tx) => {
       const jobRequest = await tx.jobRequest.create({
@@ -64,6 +70,7 @@ export class JobsService {
       link: `/jobs/${job.id}`,
       data: { jobId: job.id, diagnosticId: diagnostic.id },
     });
+    await this.emitJobUpdate(job.id);
 
     return job;
   }
@@ -74,10 +81,30 @@ export class JobsService {
       where: { id },
       include: {
         jobRequest: {
-          include: { client: { select: { id: true, firstName: true, lastName: true, profileImage: true, phone: true } } },
+          include: {
+            client: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                profileImage: true,
+                phone: true,
+              },
+            },
+          },
         },
         professional: {
-          include: { user: { select: { id: true, firstName: true, lastName: true, profileImage: true, phone: true } } },
+          include: {
+            user: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                profileImage: true,
+                phone: true,
+              },
+            },
+          },
         },
         diagnostic: true,
         rating: true,
@@ -102,7 +129,10 @@ export class JobsService {
         },
         diagnostic: { select: { id: true, problemType: true, imageUrl: true } },
         rating: { select: { score: true, comment: true } },
-        payments: { where: { status: PaymentStatus.COMPLETED }, select: { id: true, method: true } },
+        payments: {
+          where: { status: PaymentStatus.COMPLETED },
+          select: { id: true, method: true },
+        },
       },
     });
   }
@@ -142,13 +172,15 @@ export class JobsService {
       data: { status: JobStatus.ACCEPTED },
     });
     await this.notifications.create({
-      userId: (await this.prisma.jobRequest.findUnique({ where: { id: job.jobRequestId } }))!.clientId,
+      userId: (await this.prisma.jobRequest.findUnique({ where: { id: job.jobRequestId } }))!
+        .clientId,
       type: NotificationType.JOB_ACCEPTED,
       title: 'Votre demande a été acceptée',
       message: `Le pro propose ${dto.quotedPrice} FCFA pour votre demande.`,
       link: `/jobs/${id}`,
       data: { jobId: id, quotedPrice: dto.quotedPrice },
     });
+    await this.emitJobUpdate(id);
     return updated;
   }
 
@@ -166,10 +198,11 @@ export class JobsService {
       userId: jobRequest!.clientId,
       type: NotificationType.JOB_DECLINED,
       title: 'Demande refusée par le pro',
-      message: dto.reason ?? 'Le pro n\'est pas disponible pour ce job.',
+      message: dto.reason ?? "Le pro n'est pas disponible pour ce job.",
       link: `/jobs/${id}`,
       data: { jobId: id, reason: dto.reason },
     });
+    await this.emitJobUpdate(id);
     return updated;
   }
 
@@ -195,6 +228,7 @@ export class JobsService {
       link: `/jobs/${id}`,
       data: { jobId: id },
     });
+    await this.emitJobUpdate(id);
     return updated;
   }
 
@@ -233,6 +267,7 @@ export class JobsService {
       link: `/jobs/${id}`,
       data: { jobId: id, actualPrice: dto.actualPrice },
     });
+    await this.emitJobUpdate(id);
     return updated;
   }
 
@@ -249,7 +284,7 @@ export class JobsService {
     if (job.status === JobStatus.COMPLETED || job.status === JobStatus.CANCELLED) {
       throw new BadRequestException(`Job déjà ${job.status}`);
     }
-    return this.prisma.$transaction(async (tx) => {
+    const cancelled = await this.prisma.$transaction(async (tx) => {
       const j = await tx.job.update({ where: { id }, data: { status: JobStatus.CANCELLED } });
       await tx.jobRequest.update({
         where: { id: job.jobRequestId },
@@ -257,9 +292,39 @@ export class JobsService {
       });
       return j;
     });
+    await this.emitJobUpdate(id);
+    return cancelled;
   }
 
   // ---------------------------------------------------------- helpers
+
+  /** Prévient en direct le client et le pro (room `user:<id>`) qu'un job a changé. */
+  private async emitJobUpdate(id: string) {
+    const job = await this.prisma.job.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        status: true,
+        quotedPrice: true,
+        actualPrice: true,
+        jobRequest: { select: { clientId: true } },
+        professional: { select: { userId: true } },
+      },
+    });
+    if (!job) return;
+    const payload = {
+      jobId: job.id,
+      status: job.status,
+      quotedPrice: job.quotedPrice,
+      actualPrice: job.actualPrice,
+    };
+    this.realtime.toUsersAndJob(
+      [job.jobRequest.clientId, job.professional.userId],
+      job.id,
+      'job:updated',
+      payload,
+    );
+  }
 
   private async assertCanRead(
     job: { jobRequest: { clientId: string }; professional: { userId: string } },

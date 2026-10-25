@@ -1,7 +1,9 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
+  HttpCode,
   Param,
   ParseFilePipeBuilder,
   Post,
@@ -17,6 +19,7 @@ import { UsersService } from './users.service';
 import { CurrentUser, type JwtUser } from '../common/decorators/current-user.decorator';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { DeleteAccountDto } from './dto/delete-account.dto';
 
 @ApiBearerAuth('jwt')
 @ApiTags('users')
@@ -36,13 +39,27 @@ export class UsersController {
     return this.users.upgradeToPro(user);
   }
 
+  @Delete('me')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Supprimer définitivement son compte (exigence Google Play)' })
+  deleteMe(@Body() dto: DeleteAccountDto, @CurrentUser() user: JwtUser) {
+    return this.users.deleteAccount(user, dto.password);
+  }
+
   @Get(':id')
   @ApiOperation({ summary: "Détail d'un utilisateur (admin ou soi-même)" })
   getById(@Param('id') id: string, @CurrentUser() user: JwtUser) {
     if (id !== user.id && user.userType !== 'ADMIN') {
       // On retourne une version publique allégée
       return this.users.findById(id).then((u: Record<string, unknown>) => {
-        const publicKeys = ['id', 'firstName', 'lastName', 'profileImage', 'userType', 'professional'];
+        const publicKeys = [
+          'id',
+          'firstName',
+          'lastName',
+          'profileImage',
+          'userType',
+          'professional',
+        ];
         return Object.fromEntries(Object.entries(u).filter(([k]) => publicKeys.includes(k)));
       });
     }

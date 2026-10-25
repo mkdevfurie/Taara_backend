@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Notification, NotificationType, Prisma } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service';
+import { RealtimeService } from '../realtime/realtime.service';
 
 export interface CreateNotificationInput {
   userId: string;
@@ -16,15 +17,19 @@ export interface CreateNotificationInput {
 export class NotificationsService {
   private readonly logger = new Logger(NotificationsService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly realtime: RealtimeService,
+  ) {}
 
   /**
-   * Crée une notification. À combiner ensuite avec FCM en Phase 5.
-   * Émet un événement Socket.IO via NotificationsGateway (couplage faible via DI dynamique).
+   * Crée une notification et la pousse en temps réel au destinataire
+   * (évènement `notification:new` dans sa room Socket.IO).
    */
   async create(input: CreateNotificationInput): Promise<Notification> {
     const notif = await this.prisma.notification.create({ data: input });
     this.logger.debug(`notification:${notif.type} user=${notif.userId}`);
+    this.realtime.toUser(notif.userId, 'notification:new', notif);
     return notif;
   }
 

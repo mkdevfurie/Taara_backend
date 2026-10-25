@@ -10,6 +10,7 @@ import * as bcrypt from 'bcrypt';
 
 import { PrismaService } from '../prisma/prisma.service';
 import { CloudinaryService } from '../cloudinary/cloudinary.service';
+import { SubscriptionsService } from '../subscriptions/subscriptions.service';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import type { JwtUser } from '../common/decorators/current-user.decorator';
@@ -21,6 +22,7 @@ export class UsersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly cloudinary: CloudinaryService,
+    private readonly subscriptions: SubscriptionsService,
   ) {}
 
   async findById(id: string) {
@@ -66,6 +68,24 @@ export class UsersService {
         data: { revokedAt: new Date() },
       }),
     ]);
+    return { success: true };
+  }
+
+  /**
+   * Suppression définitive du compte et de tout ce qui y est rattaché
+   * (fiche pro, diagnostics, demandes, messages, notes, notifications, portefeuille),
+   * via les suppressions en cascade du schéma.
+   */
+  async deleteAccount(requester: JwtUser, password: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: requester.id } });
+    if (!user) throw new NotFoundException('Utilisateur introuvable');
+    if (user.userType === UserType.ADMIN) {
+      throw new BadRequestException('Un compte admin ne peut pas être supprimé depuis l’app');
+    }
+    if (!(await bcrypt.compare(password, user.password))) {
+      throw new BadRequestException('Mot de passe incorrect');
+    }
+    await this.prisma.user.delete({ where: { id: user.id } });
     return { success: true };
   }
 
@@ -115,6 +135,7 @@ export class UsersService {
                 specialties: [],
                 certifications: [],
                 serviceZone: [],
+                ...this.subscriptions.trialCreateData(),
               },
             },
       },
@@ -131,9 +152,13 @@ export class UsersService {
     throw new ForbiddenException('Action non autorisée sur cet utilisateur');
   }
 
-  private serialize<T extends { password?: string; emailVerificationToken?: string | null; passwordResetToken?: string | null }>(
-    user: T,
-  ) {
+  private serialize<
+    T extends {
+      password?: string;
+      emailVerificationToken?: string | null;
+      passwordResetToken?: string | null;
+    },
+  >(user: T) {
     const { password: _p, emailVerificationToken: _e, passwordResetToken: _r, ...safe } = user;
     return safe;
   }

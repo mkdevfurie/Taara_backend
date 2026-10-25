@@ -13,14 +13,10 @@ import * as crypto from 'node:crypto';
 
 import { PrismaService } from '../prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
+import { SubscriptionsService } from '../subscriptions/subscriptions.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
-import {
-  ForgotPasswordDto,
-  RefreshDto,
-  ResetPasswordDto,
-  VerifyEmailDto,
-} from './dto/refresh.dto';
+import { ForgotPasswordDto, RefreshDto, ResetPasswordDto, VerifyEmailDto } from './dto/refresh.dto';
 
 const BCRYPT_ROUNDS = 12;
 const EMAIL_TOKEN_TTL_MS = 24 * 60 * 60 * 1000; // 24h
@@ -52,6 +48,7 @@ export class AuthService {
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
     private readonly mail: MailService,
+    private readonly subscriptions: SubscriptionsService,
   ) {}
 
   // -------------------------------------------------------- REGISTER
@@ -86,7 +83,15 @@ export class AuthService {
         wallet: { create: {} },
         professional:
           userType === UserType.PRO
-            ? { create: { hourlyRate: 0, specialties: [], certifications: [], serviceZone: [] } }
+            ? {
+                create: {
+                  hourlyRate: 0,
+                  specialties: [],
+                  certifications: [],
+                  serviceZone: [],
+                  ...this.subscriptions.trialCreateData(),
+                },
+              }
             : undefined,
       },
     });
@@ -127,14 +132,21 @@ export class AuthService {
 
     const tokenHash = this.hashToken(dto.refreshToken);
     const stored = await this.prisma.refreshToken.findUnique({ where: { tokenHash } });
-    if (!stored || stored.revokedAt || stored.expiresAt < new Date() || stored.userId !== payload.sub) {
+    if (
+      !stored ||
+      stored.revokedAt ||
+      stored.expiresAt < new Date() ||
+      stored.userId !== payload.sub
+    ) {
       // Possible token reuse — révoquer toute la famille de tokens de l'utilisateur
       if (stored?.userId) {
         await this.prisma.refreshToken.updateMany({
           where: { userId: stored.userId, revokedAt: null },
           data: { revokedAt: new Date() },
         });
-        this.logger.warn(`Possible refresh token reuse for user ${stored.userId} — sessions revoked`);
+        this.logger.warn(
+          `Possible refresh token reuse for user ${stored.userId} — sessions revoked`,
+        );
       }
       throw new UnauthorizedException('Refresh token invalide');
     }
@@ -167,11 +179,7 @@ export class AuthService {
     const user = await this.prisma.user.findUnique({
       where: { emailVerificationToken: tokenHash },
     });
-    if (
-      !user ||
-      !user.emailVerificationExpires ||
-      user.emailVerificationExpires < new Date()
-    ) {
+    if (!user || !user.emailVerificationExpires || user.emailVerificationExpires < new Date()) {
       throw new BadRequestException('Token invalide ou expiré');
     }
     await this.prisma.user.update({

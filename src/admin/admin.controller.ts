@@ -5,6 +5,12 @@ import { JobStatus, UserType } from '@prisma/client';
 import { AdminService } from './admin.service';
 import { ProfessionalsService } from '../professionals/professionals.service';
 import { Roles } from '../common/decorators/roles.decorator';
+import { CurrentUser, type JwtUser } from '../common/decorators/current-user.decorator';
+import {
+  SubscriptionsService,
+  type SubscriptionStatus,
+} from '../subscriptions/subscriptions.service';
+import { ActivateSubscriptionDto } from '../subscriptions/dto/activate-subscription.dto';
 
 @ApiBearerAuth('jwt')
 @ApiTags('admin')
@@ -14,6 +20,7 @@ export class AdminController {
   constructor(
     private readonly admin: AdminService,
     private readonly pros: ProfessionalsService,
+    private readonly subscriptions: SubscriptionsService,
   ) {}
 
   // -------------------------------------------------------- USERS
@@ -64,6 +71,34 @@ export class AdminController {
   @ApiOperation({ summary: 'Vérifier un pro' })
   verifyPro(@Param('id') id: string, @Body('verified') verified = true) {
     return this.pros.verify(id, verified);
+  }
+
+  // -------------------------------------------------------- SUBSCRIPTIONS
+  @Get('subscriptions')
+  @ApiOperation({ summary: 'Pros et statut de leur abonnement (trial | active | expired | none)' })
+  listSubscriptions(
+    @Query('status') status?: SubscriptionStatus,
+    @Query('q') q?: string,
+    @Query('page') page?: string,
+    @Query('perPage') perPage?: string,
+  ) {
+    return this.subscriptions.list({
+      status:
+        status && ['trial', 'active', 'expired', 'none'].includes(status) ? status : undefined,
+      q,
+      page: page ? Number(page) : 1,
+      perPage: perPage ? Number(perPage) : 30,
+    });
+  }
+
+  @Post('professionals/:id/subscription')
+  @ApiOperation({ summary: "Activer / prolonger l'abonnement d'un pro après paiement reçu" })
+  activateSubscription(
+    @Param('id') id: string,
+    @Body() dto: ActivateSubscriptionDto,
+    @CurrentUser() admin: JwtUser,
+  ) {
+    return this.subscriptions.activate(id, dto, admin.id);
   }
 
   // -------------------------------------------------------- JOBS

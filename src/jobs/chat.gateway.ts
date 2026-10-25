@@ -15,6 +15,7 @@ import {
 import type { Server, Socket } from 'socket.io';
 
 import { MessagesService } from './messages.service';
+import { RealtimeService } from '../realtime/realtime.service';
 
 interface AuthedSocket extends Socket {
   data: { userId?: string; userType?: 'CLIENT' | 'PRO' | 'ADMIN'; rooms?: Set<string> };
@@ -40,9 +41,11 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
     private readonly messages: MessagesService,
+    private readonly realtime: RealtimeService,
   ) {}
 
-  afterInit() {
+  afterInit(server: Server) {
+    this.realtime.attach(server);
     this.logger.log('ChatGateway initialisé (namespace /chat)');
   }
 
@@ -59,6 +62,8 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
       client.data.userId = payload.sub;
       client.data.userType = payload.userType;
       client.data.rooms = new Set();
+      // Room personnelle : notifications et changements de statut des jobs
+      await client.join(`user:${payload.sub}`);
       this.logger.debug(`socket connected user=${payload.sub} sid=${client.id}`);
     } catch (e) {
       this.logger.warn(`socket reject: ${(e as Error).message}`);

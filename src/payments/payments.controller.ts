@@ -32,7 +32,7 @@ export class PaymentsController {
 
   @ApiBearerAuth('jwt')
   @Get(':id/status')
-  @ApiOperation({ summary: 'Statut d\'un paiement' })
+  @ApiOperation({ summary: "Statut d'un paiement" })
   status(@Param('id') id: string, @CurrentUser() user: JwtUser) {
     return this.payments.getStatus(id, user);
   }

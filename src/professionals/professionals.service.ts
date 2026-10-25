@@ -3,6 +3,7 @@ import { JobStatus, Prisma, UserType } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service';
 import { CloudinaryService } from '../cloudinary/cloudinary.service';
+import { SubscriptionsService } from '../subscriptions/subscriptions.service';
 import { SearchProfessionalsDto } from './dto/search-professionals.dto';
 import { UpdateProfessionalDto } from './dto/update-professional.dto';
 import type { JwtUser } from '../common/decorators/current-user.decorator';
@@ -12,6 +13,7 @@ export class ProfessionalsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly cloudinary: CloudinaryService,
+    private readonly subscriptions: SubscriptionsService,
   ) {}
 
   async search(q: SearchProfessionalsDto) {
@@ -29,6 +31,8 @@ export class ProfessionalsService {
           }
         : {}),
       user: { is: { isBanned: false } },
+      // Seuls les pros abonnés (ou en essai) apparaissent dans la recherche
+      ...this.subscriptions.activeWhere(),
     };
 
     const skip = (q.page - 1) * q.perPage;
@@ -40,7 +44,13 @@ export class ProfessionalsService {
         take: q.perPage,
         include: {
           user: {
-            select: { id: true, firstName: true, lastName: true, profileImage: true, isVerified: true },
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              profileImage: true,
+              isVerified: true,
+            },
           },
         },
       }),
@@ -54,7 +64,13 @@ export class ProfessionalsService {
       where: { id },
       include: {
         user: {
-          select: { id: true, firstName: true, lastName: true, profileImage: true, isVerified: true },
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            profileImage: true,
+            isVerified: true,
+          },
         },
         ratings: {
           take: 10,
@@ -107,7 +123,9 @@ export class ProfessionalsService {
       where: { professionalId: id, ...(status ? { status } : {}) },
       orderBy: { createdAt: 'desc' },
       include: {
-        jobRequest: { include: { client: { select: { id: true, firstName: true, lastName: true } } } },
+        jobRequest: {
+          include: { client: { select: { id: true, firstName: true, lastName: true } } },
+        },
         diagnostic: { select: { id: true, problemType: true, imageUrl: true } },
       },
     });

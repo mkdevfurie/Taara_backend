@@ -7,20 +7,14 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import {
-  JobStatus,
-  NotificationType,
-  PaymentMethod,
-  PaymentStatus,
-  Prisma,
-} from '@prisma/client';
+import { JobStatus, NotificationType, PaymentMethod, PaymentStatus, Prisma } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service';
 import { WalletService } from '../wallet/wallet.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { StripeProvider } from './providers/stripe.provider';
 import { MobileMoneyProvider } from './providers/mobile-money.provider';
-import { InitiatePaymentDto } from './dto/initiate-payment.dto';
+import { InitiatePaymentDto, type DirectChannel } from './dto/initiate-payment.dto';
 import type { JwtUser } from '../common/decorators/current-user.decorator';
 
 @Injectable()
@@ -62,6 +56,23 @@ export class PaymentsService {
     });
     if (alreadyPaid) throw new ConflictException('Ce job a déjà été payé');
 
+    // Modèle actuel : le client paie le pro en direct. TAARA n'encaisse rien,
+    // on enregistre seulement la déclaration — sans commission ni crédit du
+    // portefeuille (sinon le pro pourrait « retirer » un argent jamais reçu).
+    if (dto.method === PaymentMethod.CASH) {
+      return this.recordDirectPayment(job, amount, dto.channel ?? 'CASH');
+    }
+    if (dto.method === PaymentMethod.STRIPE && !this.stripe.isReady) {
+      throw new BadRequestException(
+        'Paiement par carte indisponible : payez le réparateur directement.',
+      );
+    }
+    if (dto.method === PaymentMethod.ORANGE_MONEY || dto.method === PaymentMethod.MTN_MONEY) {
+      throw new BadRequestException(
+        "Paiement Mobile Money dans l'app pas encore disponible : payez le réparateur directement.",
+      );
+    }
+
     const commissionRate = Number(this.config.get<string>('COMMISSION_RATE') ?? '0.10');
     const commission = Math.round(amount * commissionRate);
     const netAmount = amount - commission;
@@ -97,11 +108,6 @@ export class PaymentsService {
         paymentId: payment.id,
         phone: job.jobRequest.client.phone,
       });
-    } else if (dto.method === PaymentMethod.CASH) {
-      providerResult = {
-        transactionId: `cash_${payment.id}`,
-        status: 'completed' as const,
-      };
     } else {
       throw new BadRequestException('Méthode de paiement non supportée');
     }
@@ -117,11 +123,6 @@ export class PaymentsService {
       },
     });
 
-    // Pour le mode CASH, on finalise immédiatement
-    if (dto.method === PaymentMethod.CASH) {
-      await this.markCompleted(payment.id);
-    }
-
     return {
       paymentId: payment.id,
       method: dto.method,
@@ -132,6 +133,51 @@ export class PaymentsService {
       clientSecret: providerResult.clientSecret,
       redirectUrl: providerResult.redirectUrl,
       transactionId: providerResult.transactionId,
+    };
+  }
+
+  private async recordDirectPayment(
+    job: { id: string; professional: { userId: string } },
+    amount: number,
+    channel: DirectChannel,
+  ) {
+    const now = new Date();
+    const payment = await this.prisma.payment.create({
+      data: {
+        jobId: job.id,
+        amount,
+        commissionRate: 0,
+        commission: 0,
+        netAmount: amount,
+        method: PaymentMethod.CASH,
+        status: PaymentStatus.COMPLETED,
+        completedAt: now,
+        metadata: { direct: true, channel } as Prisma.InputJsonValue,
+      },
+    });
+    await this.prisma.payment.update({
+      where: { id: payment.id },
+      data: { transactionId: `direct_${payment.id}` },
+    });
+    const label =
+      channel === 'CASH' ? 'en espèces' : channel === 'T_MONEY' ? 'par T-Money' : 'par Flooz';
+    await this.notifications.create({
+      userId: job.professional.userId,
+      type: NotificationType.PAYMENT_RECEIVED,
+      title: 'Paiement déclaré',
+      message: `Le client indique vous avoir payé ${amount} FCFA ${label}.`,
+      link: `/jobs/${job.id}`,
+      data: { paymentId: payment.id, amount, channel },
+    });
+    return {
+      paymentId: payment.id,
+      method: PaymentMethod.CASH,
+      channel,
+      amount,
+      commission: 0,
+      netAmount: amount,
+      status: 'completed' as const,
+      transactionId: `direct_${payment.id}`,
     };
   }
 
@@ -248,6 +294,11 @@ export class PaymentsService {
   }
 
   async handleMobileMoneyCallback(payload: unknown) {
+    // Le provider Mobile Money est un stub qui n'authentifie pas l'appelant :
+    // tant qu'il n'est pas branché, ce webhook public ne doit rien valider.
+    if (this.config.get<string>('MOBILE_MONEY_WEBHOOK_ENABLED') !== 'true') {
+      throw new BadRequestException('Mobile Money non activé');
+    }
     const result = this.mobileMoney.verifyCallback(payload);
     if (!result) throw new BadRequestException('Payload invalide');
     if (result.status === 'completed') return this.markCompleted(result.paymentId);

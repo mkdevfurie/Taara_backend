@@ -3,12 +3,14 @@ import { JobStatus, PaymentStatus, Prisma, UserType } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service';
 import { WalletService } from '../wallet/wallet.service';
+import { SubscriptionsService } from '../subscriptions/subscriptions.service';
 
 @Injectable()
 export class AdminService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly wallet: WalletService,
+    private readonly subscriptions: SubscriptionsService,
   ) {}
 
   async listUsers(opts: { q?: string; userType?: UserType; page?: number; perPage?: number } = {}) {
@@ -54,9 +56,8 @@ export class AdminService {
   async listProfessionals(opts: { verifiedOnly?: boolean; page?: number; perPage?: number } = {}) {
     const page = opts.page ?? 1;
     const perPage = opts.perPage ?? 30;
-    const where: Prisma.ProfessionalWhereInput = opts.verifiedOnly === undefined
-      ? {}
-      : { isVerified: opts.verifiedOnly };
+    const where: Prisma.ProfessionalWhereInput =
+      opts.verifiedOnly === undefined ? {} : { isVerified: opts.verifiedOnly };
     const [items, total] = await this.prisma.$transaction([
       this.prisma.professional.findMany({
         where,
@@ -145,11 +146,14 @@ export class AdminService {
         where: { status: PaymentStatus.COMPLETED },
       }),
     ]);
+    const subscriptions = await this.subscriptions.stats();
 
     return {
       users: { total: usersTotal, clients, pros, verifiedPros },
+      subscriptions,
       jobs: { total: jobsTotal, completed: jobsCompleted, active: jobsActive },
       diagnostics: { last30Days: diagnostics30d },
+      // Volume des jobs payés (en direct au pro) — TAARA ne touche pas cet argent
       revenue: {
         monthlyGross: monthlyRevenue._sum.amount ?? 0,
         monthlyCommission: monthlyCommission._sum.commission ?? 0,
@@ -186,7 +190,15 @@ export class AdminService {
     return this.prisma.walletTransaction.findMany({
       where: { type: 'withdrawal', status: PaymentStatus.PENDING },
       orderBy: { createdAt: 'asc' },
-      include: { wallet: { include: { user: { select: { id: true, email: true, firstName: true, lastName: true, phone: true } } } } },
+      include: {
+        wallet: {
+          include: {
+            user: {
+              select: { id: true, email: true, firstName: true, lastName: true, phone: true },
+            },
+          },
+        },
+      },
     });
   }
 }

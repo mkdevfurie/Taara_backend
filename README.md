@@ -68,6 +68,33 @@ Diagnostics (`/diagnostics` — accepte un `aiDiagnosis` déjà calculé sur l'a
 
 Retraits : le pro demande (`POST /wallet/withdraw`), l'admin valide (`POST /admin/withdrawals/:id/approve`) ou refuse avec recrédit (`POST /admin/withdrawals/:id/reject`, `{ reason? }`).
 
+## Modèle économique : abonnements des pros
+
+- Le **client paie le pro en direct** (espèces, T-Money, Flooz). `POST /payments` avec `method: CASH` + `channel` enregistre seulement la déclaration : pas de commission, **pas de crédit du portefeuille** (donc rien à retirer).
+- Les paiements en ligne sont refusés tant qu'aucun prestataire n'est branché (Stripe sans clé, Mobile Money non implémenté, webhook Mobile Money désactivé).
+- TAARA se rémunère par l'**abonnement mensuel des pros** :
+  - chaque nouveau pro reçoit `PRO_TRIAL_MONTHS` mois d'essai (3 par défaut) ;
+  - seuls les pros abonnés ou en essai apparaissent dans `/professionals/search` et peuvent recevoir une demande ;
+  - le pro paie `SUBSCRIPTION_MONTHLY_PRICE` FCFA/mois par Mobile Money aux numéros `SUBSCRIPTION_TMONEY_NUMBER` / `SUBSCRIPTION_FLOOZ_NUMBER` ;
+  - un admin active / prolonge : `POST /admin/professionals/:id/subscription` `{ months, channel, amount?, reference? }`.
+- Endpoints : `GET /subscriptions/plans` (public), `GET /subscriptions/me` (pro), `GET /admin/subscriptions?status=trial|active|expired`.
+
+## IA (Gemma 4)
+
+`POST /api/v1/ai/generate` relaie les diagnostics de l'app vers l'API Gemini (`GEMINI_API_KEY`, `GEMINI_MODEL`) :
+la clé ne quitte jamais le serveur. Endpoint public (le diagnostic fonctionne sans compte), limité à 12 requêtes/min
+par IP, texte et images uniquement (8 Mo max).
+
+## Temps réel (Socket.IO)
+
+Namespace `/chat`, authentification par le jeton d'accès (`auth: { token }`). Chaque connexion rejoint `user:<id>` ;
+l'écran de chat rejoint `job:<id>` (`job:join` / `job:leave`). Évènements émis : `notification:new`,
+`job:updated` (création, acceptation, refus, démarrage, fin, annulation), `message:new`, `typing`.
+
+## Suppression de compte
+
+`DELETE /api/v1/users/me` `{ password }` supprime définitivement le compte et ses données (exigence Google Play).
+
 ## Emails
 
 `MAIL_PROVIDER` = `console` (dev : contenu loggé), `resend` (`RESEND_API_KEY`) ou `sendgrid` (`SENDGRID_API_KEY`). Les liens pointent vers `APP_URL`. Un échec d'envoi est loggé sans bloquer l'inscription.
@@ -95,6 +122,16 @@ npm run prisma:migrate -- --name init
 # Prod (CI / Cloud Run)
 npm run prisma:deploy
 ```
+
+## Compte admin de production
+
+Ne pas lancer `prisma:seed` en production (mots de passe de démo publics). Créer l'admin avec :
+
+```bash
+ADMIN_EMAIL=moi@exemple.com ADMIN_PHONE=+22890000000 npm run admin:create
+```
+
+Un mot de passe aléatoire est généré et affiché une seule fois (ou fournir `ADMIN_PASSWORD`, 12 caractères min.).
 
 ## Compte de démo (après `prisma:seed`)
 

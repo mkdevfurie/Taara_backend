@@ -9,6 +9,8 @@ async function main() {
   const adminPassword = await bcrypt.hash('admin12345', 10);
   const proPassword = await bcrypt.hash('pro12345', 10);
   const clientPassword = await bcrypt.hash('client12345', 10);
+  const trialEnd = new Date();
+  trialEnd.setMonth(trialEnd.getMonth() + 3);
 
   const admin = await prisma.user.upsert({
     where: { email: 'admin@taara.app' },
@@ -61,6 +63,17 @@ async function main() {
           serviceZone: ['Lomé', 'Tsévié'],
           isVerified: true,
           hourlyRate: 3500,
+          // Pro de démo : 3 mois d'essai, pour qu'il apparaisse dans la recherche
+          subscriptionEndsAt: trialEnd,
+          subscriptions: {
+            create: {
+              months: 3,
+              channel: 'TRIAL',
+              note: 'Essai (seed)',
+              startsAt: new Date(),
+              endsAt: trialEnd,
+            },
+          },
           availability: {
             mon: '09:00-18:00',
             tue: '09:00-18:00',

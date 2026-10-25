@@ -110,6 +110,30 @@ class EnvVars {
 
   @IsString()
   @IsOptional()
+  GEMINI_API_KEY?: string;
+
+  @IsString()
+  @IsOptional()
+  GEMINI_MODEL?: string;
+
+  @IsString()
+  @IsOptional()
+  PRO_TRIAL_MONTHS: string = '3';
+
+  @IsString()
+  @IsOptional()
+  SUBSCRIPTION_MONTHLY_PRICE: string = '5000';
+
+  @IsString()
+  @IsOptional()
+  SUBSCRIPTION_TMONEY_NUMBER?: string;
+
+  @IsString()
+  @IsOptional()
+  SUBSCRIPTION_FLOOZ_NUMBER?: string;
+
+  @IsString()
+  @IsOptional()
   STRIPE_SECRET_KEY?: string;
 
   @IsString()
@@ -118,7 +142,12 @@ class EnvVars {
 }
 
 export function validateEnv(config: Record<string, unknown>) {
-  const validated = plainToInstance(EnvVars, config, { enableImplicitConversion: true });
+  // `FOO=` dans un .env donne une chaîne vide : on la traite comme une variable absente
+  // (sinon @IsUrl / @IsInt rejettent les options laissées vides et l'app ne démarre pas).
+  const cleaned = Object.fromEntries(
+    Object.entries(config).filter(([, v]) => !(typeof v === 'string' && v.trim() === '')),
+  );
+  const validated = plainToInstance(EnvVars, cleaned, { enableImplicitConversion: true });
   const errors = validateSync(validated, { skipMissingProperties: false });
   if (errors.length > 0) {
     const messages = errors

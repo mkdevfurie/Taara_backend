@@ -22,6 +22,7 @@
     "prisma:deploy": "prisma migrate deploy",
     "prisma:studio": "prisma studio",
     "prisma:seed": "prisma db seed",
+    "admin:create": "node --env-file=.env -r ts-node/register prisma/create-admin.ts",
     "db:reset": "prisma migrate reset --force"
   },
   "dependencies": {

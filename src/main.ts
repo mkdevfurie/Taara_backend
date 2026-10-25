@@ -2,6 +2,7 @@
 import './instrument';
 
 import { NestFactory } from '@nestjs/core';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { ConfigService } from '@nestjs/config';
 import { ValidationPipe, VersioningType, Logger as NestLogger } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
@@ -13,7 +14,10 @@ import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule, { bufferLogs: true, rawBody: true });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    bufferLogs: true,
+    rawBody: true,
+  });
 
   app.useLogger(app.get(Logger));
 
@@ -28,6 +32,9 @@ async function bootstrap() {
     .split(',')
     .map((o) => o.trim())
     .filter(Boolean);
+
+  // Photos encodées en base64 pour le diagnostic IA (/ai/generate)
+  app.useBodyParser('json', { limit: '12mb' });
 
   app.setGlobalPrefix(apiPrefix);
   app.enableVersioning({ type: VersioningType.URI, defaultVersion: '1' });

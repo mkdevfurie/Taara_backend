@@ -9,6 +9,7 @@ import { validateEnv } from './common/config/env.validation';
 import { PrismaModule } from './prisma/prisma.module';
 import { CloudinaryModule } from './cloudinary/cloudinary.module';
 import { MailModule } from './mail/mail.module';
+import { RealtimeModule } from './realtime/realtime.module';
 import { GemmaModule } from './gemma/gemma.module';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
@@ -21,6 +22,8 @@ import { WalletModule } from './wallet/wallet.module';
 import { PaymentsModule } from './payments/payments.module';
 import { SubcontractorsModule } from './subcontractors/subcontractors.module';
 import { AdminModule } from './admin/admin.module';
+import { AiModule } from './ai/ai.module';
+import { SubscriptionsModule } from './subscriptions/subscriptions.module';
 import { HealthController } from './health.controller';
 
 @Module({
@@ -69,8 +72,10 @@ import { HealthController } from './health.controller';
     PrismaModule,
     CloudinaryModule,
     MailModule,
+    RealtimeModule,
     GemmaModule,
     NotificationsModule,
+    SubscriptionsModule,
     WalletModule,
     AuthModule,
     UsersModule,
@@ -81,6 +86,7 @@ import { HealthController } from './health.controller';
     PaymentsModule,
     SubcontractorsModule,
     AdminModule,
+    AiModule,
   ],
   controllers: [HealthController],
   providers: [
