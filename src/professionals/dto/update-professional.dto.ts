@@ -9,6 +9,7 @@ import {
   IsObject,
   IsOptional,
   IsString,
+  Matches,
   Max,
   MaxLength,
   Min,
@@ -58,4 +59,16 @@ export class UpdateProfessionalDto {
   @IsOptional()
   @IsObject()
   availability?: Record<string, string>;
+
+  @ApiPropertyOptional({ description: 'Personne qui peut se porter garante (privé)' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  guarantorName?: string;
+
+  @ApiPropertyOptional({ description: 'Téléphone du garant (privé)' })
+  @IsOptional()
+  @IsString()
+  @Matches(/^$|^\+?[0-9 ]{8,20}$/, { message: 'Numéro du garant invalide' })
+  guarantorPhone?: string;
 }

@@ -8,6 +8,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { SearchProfessionalsDto } from './dto/search-professionals.dto';
 import { UpdateProfessionalDto } from './dto/update-professional.dto';
 import type { JwtUser } from '../common/decorators/current-user.decorator';
+import { PRIVATE_PRO_FIELDS } from './private-fields';
 
 @Injectable()
 export class ProfessionalsService {
@@ -41,6 +42,7 @@ export class ProfessionalsService {
     const [items, total] = await this.prisma.$transaction([
       this.prisma.professional.findMany({
         where,
+        omit: PRIVATE_PRO_FIELDS,
         orderBy: [{ rating: 'desc' }, { totalJobs: 'desc' }],
         skip,
         take: q.perPage,
@@ -64,6 +66,7 @@ export class ProfessionalsService {
   async getById(id: string) {
     const pro = await this.prisma.professional.findUnique({
       where: { id },
+      omit: PRIVATE_PRO_FIELDS,
       include: {
         user: {
           select: {

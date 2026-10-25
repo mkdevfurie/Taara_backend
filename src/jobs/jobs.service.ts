@@ -9,6 +9,7 @@ import { JobStatus, NotificationType, PaymentStatus, UserType, type Job } from '
 import { PrismaService } from '../prisma/prisma.service';
 import { SubscriptionsService } from '../subscriptions/subscriptions.service';
 import { RealtimeService } from '../realtime/realtime.service';
+import { PRIVATE_PRO_FIELDS } from '../professionals/private-fields';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CreateJobDto } from './dto/create-job.dto';
 import { AcceptJobDto, CompleteJobDto, DeclineJobDto } from './dto/quote-job.dto';
@@ -94,6 +95,7 @@ export class JobsService {
           },
         },
         professional: {
+          omit: PRIVATE_PRO_FIELDS,
           include: {
             user: {
               select: {
@@ -125,6 +127,7 @@ export class JobsService {
       orderBy: { createdAt: 'desc' },
       include: {
         professional: {
+          omit: PRIVATE_PRO_FIELDS,
           include: { user: { select: { firstName: true, lastName: true, profileImage: true } } },
         },
         diagnostic: { select: { id: true, problemType: true, imageUrl: true } },

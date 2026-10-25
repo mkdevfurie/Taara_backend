@@ -143,6 +143,11 @@ model Professional {
   hourlyRate   Float // FCFA
   availability Json? // { "mon": "09:00-17:00", ... }
 
+  // Personne qui peut se porter garante (artisans formés sur le tas, sans diplôme).
+  // Visible uniquement par le pro lui-même et l'équipe Taara.
+  guarantorName  String?
+  guarantorPhone String?
+
   // Abonnement : le pro est visible et peut recevoir des demandes tant que
   // subscriptionEndsAt est dans le futur (période d'essai incluse).
   subscriptionEndsAt DateTime?
